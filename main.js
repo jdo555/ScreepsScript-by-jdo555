@@ -13,6 +13,26 @@
 // !!! note that this object is meant to be manually (and admittedly tediously) filled out; a more convenient alternative might involve using room memory to hold ...
 // ... route directions (having this room memory automatically filled out by something like a scout creep...)
 var travelObject = {
+    W19S22: {
+        W21S24: [41,0],
+        W21S23: [49,41],
+        W20S23: [29,0],
+        W20S22: [49,25],
+    },
+    W21S22: {
+        W20S22: [0,40],
+        W20S23: [10,0],
+        W21S23: [49,41],
+        W21S24: [41,0],
+    },
+    W21S24: {
+        W20S22: [10,49],
+        W20S23: [0,40],
+        W21S23: [41,49],
+        W21S22: [49,43],
+        W23S24: [49,34],
+        W22S24: [49,26],
+    },
     W23S24: {
         W21S24: [0,26],
         W22S24: [0,34],
@@ -42,9 +62,17 @@ function travelToTargetRoom(creep, roomType = 0, passedRoomName) {
             targetRoomName = passedRoomName;
         }
     }
-    let coords = travelObject[targetRoomName][creep.room.name];
+    let coords;
+    let innerTravelObject = travelObject[targetRoomName];
+    if (innerTravelObject) {
+        coords = innerTravelObject[creep.room.name];
+    }
     if (coords == undefined) {
-        console.log("WARNING: coords is undefined for the room "+creep.room.name+" when traveling to "+targetRoomName+".");
+        if (innerTravelObject) {
+            console.log("WARNING: coords is undefined for the room "+creep.room.name+" when traveling to "+targetRoomName+".");
+        } else {
+            console.log ("WARNING: "+targetRoomName+" is not provided as key in travelObject!");
+        }
     } else {
         // ! note the options for the moveTo function: maxRooms should be 1 to work properly with "travelObject"; and reusePath is high to save CPU
         creep.moveTo(coords[0], coords[1], {maxRooms: 1, reusePath: 40, visualizePathStyle: {stroke: '#ffffff'}});
@@ -211,7 +239,8 @@ function getSingleStructureDetailsByRoomMemory(curRoom, structType, detail, room
 class Base {
     constructor(roomName, roleCountObject, baseNum) {
         this.baseName = roomName; // the name of the room with the controller
-        this.baseNumber = baseNum; // the number of the base (starting with 0); used primarily for timing the spawn-checks at this point...
+        this.baseNumber = baseNum; // the number of the base (starting with 0); used primarily for timing the spawn-checks and some tick-based checks; also is used in creep names merely to ensure uniqueness
+                                   // ! note that baseNumber can change at code re-commit (such as when a base is lost or a new base is claimed [thereby making current creep-names irrelevant])
         this.roleCounts = roleCountObject; // roleCounts for this base specifically
         this.spawnNames = this.getSpawnNamesForBase(); // all spawn names in the given room, in an array
         this.centralPos = this.getCentralPosition(); // in format [x, y]
@@ -2834,7 +2863,11 @@ class ScreepsScript {
                                     if (creep.withdraw(dropContainer, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
                                         creep.moveTo(dropContainer, {maxRooms: 1, visualizePathStyle: {stroke: '#ffaa00'}});
                                     }
+                                } else { // if container broke at some point...
+                                    rallyAtWaitLocation(creep, baseName);
                                 }
+                            } else { // when container has not yet been built...
+                                rallyAtWaitLocation(creep, baseName);
                             }
                         } else {
                             creep.memory.recycle = true; // ! creep is no longer needed due to dropMine being gone...
@@ -3206,6 +3239,7 @@ class ScreepsScript {
             role[RUN_FUNCTION] = (creep) => {
                 let baseName = creep.memory.base;
                 if (recycleWhenRedundant(creep, baseName, true)) { return; } // ! terminate role code immediately if recycling
+                if (remitWhenDying(creep, baseName, 10, false)) { return; } // ! terminate role code immediately if remitting
                 if (creep.room.name != baseName) {
                     travelToTargetRoom(creep, 1);
                 } else {
@@ -4405,6 +4439,7 @@ class ScreepsScript {
             role[RUN_FUNCTION] = (creep) => {
                 let baseName = creep.memory.base;
                 if (recycleWhenRedundant(creep, baseName, true)) { return; } // ! terminate role code immediately if recycling
+                if (remitWhenDying(creep, baseName, 7, false)) { return; } // ! terminate role code immediately if remitting
                 if (creep.room.name != baseName) {
                     travelToTargetRoom(creep, 1);
                 } else {
@@ -4839,12 +4874,11 @@ class ScreepsScript {
         // ! note that this object is meant to be very fluid and changing, and exists so that the user can adaptively spawn units as needed per base
         // ! please see the "exclamation" notes for spawnArraysByControllerLevel for some more information
         this.spawnArraysByBase = {
+            W19S22: [
+                
+            ],
             W21S24: [
-                //mso(1, "scavenger", "2m2c", {forceCondition: true}),
-                mso(3, "upgraderS", "6w3c9m"),
-                //mso(1, "lootingWorker", "6m3w3c", {spawnFor: "W23S24"}),
-                //mso(5, "harvester", "6m3w3c", {spawnFor: "W23S24"}),
-                //mso(1, "claimer", "1i1m", {extraMemory: {targetRoom: "W23S24", task: 3}}),
+                
             ],
             W23S24: [
                 
@@ -4927,8 +4961,9 @@ class ScreepsScript {
         }
         for (let property in this.spawnArraysByBase) {
             if (!Game.rooms[property]) {
-                // !!! could instead issue a warning, to allow for the preparation of bases net yet acquired...
-                throw new Error("The string, "+property+", does not represent a room that is visible or usable by the player!\n       Every string property in spawnArraysByBase should represent a room that is one of the player's own bases!");
+                // ! note that a warning (and not an error) is signalled here to allow for the convenience of preparing spawn arrays before a base has been claimed ...
+                // ... but also to ensure that code does not simply crash (and stay crashed) if a base were lost and a re-commit occurred
+                console.log("WARNING: The string, "+property+", does not represent a room that is visible or usable by the player!\n         Every string property in spawnArraysByBase should represent a room that is one of the player's own bases!");
             }
         }
         for (let obj of [this.spawnArraysByControllerLevel, this.spawnArraysByBase]) {
@@ -5140,12 +5175,17 @@ class ScreepsScript {
         // if baseType is 1, then template and anchor must be provided... (again, note that baseType 1 is currently the only implemented option !!!!!)
         // ... template (when provided) must be an integer that relates to a template by index in this.baseTemplates
         // ... anchor (when provided) is the [x,y] coordinate-location in the room where the template's [0,0]-coordinate will be placed
+        // rotateNinetyDegrees should be set to true if the template is to be rotated 90 degrees clockwise such that the anchor is still at top-left; otherwise, false or undefined
         // autoRoads should be set to true if roads are to be automatically built over swamps adjacent to main-structures; can otherwise be unset or set to false
         // ! note that autoRoad locations will be set to room-memory regardless of the value of autoRoads; autoRoads only determines whether the roads will actually be built
-        // rotateNinetyDegrees should be set to true if the template is to be rotated 90 degrees clockwise such that the anchor is still at top-left; otherwise, false or undefined
-        // ! lastly, note that the base "sim" refers to the training/simulation room
         // !!!!! could add many more... such as, for example, harvester max counts per source: {... harvesterSource1MaxCount: <int>, harvesterSource2MaxCount: <int>, ...}
         this.baseBuildDetails = {
+            W19S22: {
+                baseType: 1,
+                template: 1,
+                anchor: [31,20],
+                autoRoads: true,
+            },
             W21S24: {
                 baseType: 1,
                 template: 1,
@@ -5156,7 +5196,7 @@ class ScreepsScript {
                 template: 2,
                 anchor: [15, 38]
             },
-            sim: {
+            sim: { // ! note that the base "sim" refers to the training/simulation room
                 baseType: 1,
                 template: 1,
                 anchor: [11,17] // with spawn at 16,23
@@ -5180,6 +5220,8 @@ class ScreepsScript {
         }
         this.baseCount = 0;
         // creating each Base and storing each as the "value" in the this.bases object where the "key" is roomName
+        // ! note that bases are given their index according to the ordering of Game.rooms; thus, a base's index may change at code re-commit ...
+        // ... due to the claiming or losing of a base before re-commit; a base's baseNumber should be used cautiously with this in mind
         for (let roomName in Game.rooms) {
             if (Game.rooms[roomName].controller && Game.rooms[roomName].controller.my) {
                 this.prepareRoomMemory(roomName);
@@ -5918,7 +5960,7 @@ class ScreepsScript {
     // this method counts all living creeps at first initialization of script
     // ! note that it also frees the memory of any creeps that died previously, freeing such memory immediately before beginning the counting process
     // ! also, any creeps that are found to lack certain memory properties are given defaults by this method (!!!!! this process could still be improved)
-    // ! creeps spawning without any memory is a very rare issue and seems related to server maintainance or service interruptions, and is not the fault of the code; ...
+    // ! creeps spawning without any memory is a rare issue and is related to server maintainance or service interruptions, and is not (directly) the fault of the code; ...
     // ... if this issue ever occurs, messages will be displayed within the console until the data for such messages are manually removed from the room's "errors" memory
     countAllCreepsAtInit() {
         this.freeDeadCreepMemory(false); // ! free memory of any creeps that previously died (before this initialization) WITHOUT adjusting counts
@@ -5971,21 +6013,25 @@ class ScreepsScript {
         if (roleType && baseName) { // if roleType and baseName are set // ! note that role and base should ALWAYS be set in every creep's memory...
             const value = (increase) ? 1 : -1;
             let base = this.bases[baseName];
-            base.roleCounts[roleType] += value;
-            if (base.roleCounts[roleType] < 0) {
-                base.roleCounts[roleType] = 0;
-            }
-            base.roleCounts.all += value;
-            if (base.roleCounts.all < 0) {
-                base.roleCounts.all = 0;
-            }
-            this.roles[roleType].curCount += value;
-            if (this.roles[roleType].curCount < 0) {
-                this.roles[roleType].curCount = 0;
-            }
-            this.totalCreepCount += value;
-            if (this.totalCreepCount < 0) {
-                this.totalCreepCount = 0;
+            if (base) {
+                base.roleCounts[roleType] += value;
+                if (base.roleCounts[roleType] < 0) {
+                    base.roleCounts[roleType] = 0;
+                }
+                base.roleCounts.all += value;
+                if (base.roleCounts.all < 0) {
+                    base.roleCounts.all = 0;
+                }
+                this.roles[roleType].curCount += value;
+                if (this.roles[roleType].curCount < 0) {
+                    this.roles[roleType].curCount = 0;
+                }
+                this.totalCreepCount += value;
+                if (this.totalCreepCount < 0) {
+                    this.totalCreepCount = 0;
+                }
+            } else { // when the base does not exist
+                console.log("WARNING: changeCreepCounts called for units of a base that no longer exists!");
             }
         } else { // when necessary memory properties were NOT set...
             console.log("WARNING: changeCreepCounts called without necessary arguments!");
@@ -6004,7 +6050,11 @@ class ScreepsScript {
         let optionsPassed = (spawnObj.options) ? true : false;
         if (optionsPassed && spawnObj.options.spawnFor) { // when unit is to be spawned for another base...
             spawnFor = spawnObj.options.spawnFor;
-            // !!! will need to check here that the base is still owned or was ever owned... (check for an entry in bases, and check the ownership of the controller)
+            let spawnForRoom = Game.rooms[spawnFor];
+            // if the base does not exist OR the room is not visible (at all) OR the controller within room is no longer controlled...
+            if (!this.bases[spawnFor] || !spawnForRoom || !spawnForRoom.controller.my) {
+                return -3; // ...cancel attempt to spawn because base does not exist or room is not controlled
+            }
         } else { // when spawning for current base
             spawnFor = baseName;
         }
@@ -6023,6 +6073,11 @@ class ScreepsScript {
                     return 0; // no unit was spawned (because spawning was unaffordable...)
                 }
             }
+            // ! note that for any creep's name to be certainly unique, it must have the number of the spawned-for base, the number of the spawning base, ...
+            // ... and the index of the used spawn, in addition to the actual spawn-time; otherwise there could be naming overlaps
+            // ! note also that because baseNumber can change at re-commit with the prior claiming or losing of a base, the names of living creeps can sometimes be, ...
+            // ... for a limited time, more relevant to the previous commit, with the next generation of creeps all being named according to the updated value;
+            // ... since this script's requirement for creep names is simply that they be unique (with the hope that they be somewhat obscurely informative), this is no issue
             let newName = spawnObj.roleType + "_" + this.bases[spawnFor].baseNumber + "_" + this.bases[baseName].baseNumber + "_" + spawnIndex + "_" + Game.time;
             let memoryObj = {role: spawnObj.roleType, base: spawnFor};
             // adding any "extra memory" (if passed) to the creep's memory
@@ -6032,7 +6087,8 @@ class ScreepsScript {
                 }
             }
             if (Game.spawns[spawnName].spawnCreep(spawnObj.bodyObj.body, newName, {memory: memoryObj}) == OK) { // if the creep can be spawned
-                console.log("Spawning "+spawnObj.roleType+" in room "+baseName+": "+newName);
+                let forBaseString = (spawnFor == baseName) ? "" : " (for "+spawnFor+")";
+                console.log("Spawning "+spawnObj.roleType+" in room "+baseName+forBaseString+": "+newName);
                 this.changeCreepCounts(true, spawnObj.roleType, spawnFor);
                 if (this.roles[spawnObj.roleType].birthFunction != null) {
                     this.roles[spawnObj.roleType].birthFunction(newName);
@@ -6040,7 +6096,7 @@ class ScreepsScript {
                 return 1; // spawning was successful
             } else { // if there was some other reason it could not be spawned...
                 // !!!!! note that I have not seen this section triggered in any recent versions of this script, but I leave it here just in case
-                console.log(newName+", at "+spawnName+", in "+baseName);
+                console.log("WARNING: spawning failed for "+newName+", at "+spawnName+", in "+baseName+", for "+spawnFor);
                 console.log(JSON.stringify(memoryObj));
                 console.log(JSON.stringify(spawnObj));
                 return -5; // spawning failed for UNKNOWN reason
@@ -6056,7 +6112,7 @@ var screepsObj = new ScreepsScript();
 
 module.exports.loop = function () {
     screepsObj.tickCount++;
-    console.log(screepsObj.tickCount);
+    console.log("##### " + screepsObj.tickCount + " #####");
     
     screepsObj.freeDeadCreepMemory(true);
     
@@ -6065,8 +6121,8 @@ module.exports.loop = function () {
         Game.cpu.generatePixel();
     }
     
-    let countString = "##################\n";
-    // for every base that I own...
+    let countString = "";
+    // for every base owned...
     for (let baseName in screepsObj.bases) {
         let curBase = screepsObj.bases[baseName];
         let curRoom = Game.rooms[baseName];
@@ -6153,6 +6209,8 @@ module.exports.loop = function () {
                         } else if (spawnCode == -2) { // spawn is busy spawning already...
                             unitWasSpawned = true;
                             break; // move onto next spawn...
+                        } else if (spawnCode == -3) { // the base does not exist or room is no longer controlled
+                            continue; // continue with this spawn... (most likely the spawnFor option was used for a lost base or uncontrolled room)
                         } else if (spawnCode == -5) { // spawning failed for unknown reason...
                             console.log("Spawning failed for unknown reason..."); // !!! again, I haven't seen this trigger for a long time, but it is here just in case
                         }
@@ -6160,7 +6218,7 @@ module.exports.loop = function () {
                 }
             }
             
-            // power spawn section
+            // power spawn section...
             if (curBase.powerSpawnID) {
                 let powerSpawn = Game.getObjectById(curBase.powerSpawnID);
                 if (powerSpawn && powerSpawn.store.getUsedCapacity(RESOURCE_POWER) > 0) {
@@ -6168,7 +6226,7 @@ module.exports.loop = function () {
                 }
             }
             
-            // factory section
+            // factory section...
             if (curBase.factoryID) {
                 let factory = Game.getObjectById(curBase.factoryID);
                 if (factory) {
@@ -6179,28 +6237,27 @@ module.exports.loop = function () {
                 }
             }
             
-            // error messages...
+            // error-messages section...
             for (let p in curRoom.memory.errors) {
                 console.log("In "+curRoom.name+", at tick "+p+": "+curRoom.memory.errors[p]);
             }
             
             // count-collecting section...
-            let sp = (curBase.roleCounts.all < 10) ? " " : "";
-            countString = countString + controllerLevel + " " + baseName + " (" + curBase.roleCounts.all + ") "+sp+"--> ";
+            countString = countString + controllerLevel + " " + baseName.padStart(6) + (" (" + curBase.roleCounts.all + ")").padEnd(6) + " --> ";
             for (let roleType in screepsObj.roles) {
-                countString = countString + //roleType.slice(0,3) + ": " + 
-                              curBase.roleCounts[roleType] + "/";
+                countString = countString + curBase.roleCounts[roleType] + "/";
             }
-            countString = countString + "\n";
+            if (curRoom.controller.level < 8) {
+                countString += " ... "+curRoom.controller.progress+" of "+curRoom.controller.progressTotal+" ("+(curRoom.controller.progress/curRoom.controller.progressTotal*100).toFixed(4)+" %)";
+            }
+            countString += "\n";
         }
     }
     
     // count output section...
-    let sp = (screepsObj.totalCreepCount < 10) ? " " : "";
-    let totalString = "   ALL   (" + screepsObj.totalCreepCount + ") "+sp+"--> ";
+    let totalString = "     ALL" + (" ("+screepsObj.totalCreepCount+")").padEnd(6) + " --> ";
     for (let roleType in screepsObj.roles) {
-        totalString = totalString + //roleType.slice(0,3) + ": " + 
-                      screepsObj.roles[roleType].curCount + "/";
+        totalString = totalString + screepsObj.roles[roleType].curCount + "/";
     }
     console.log(countString+totalString);
     
@@ -6216,7 +6273,7 @@ module.exports.loop = function () {
         }
     }
     
-    // terminal section
+    // terminal section...
     { // !!!!! this section is meant to be adjusted manually... and for now must be started and stopped manually (by changing the NULL in if-expression)
         if (null) { //////////////////////////////////// SELL OWNED RESOURCES HERE //////////////////////////////////////////////
             let myRoom = "E8N17"; // !!!
