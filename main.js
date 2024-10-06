@@ -13,29 +13,20 @@
 // !!! note that this object is meant to be manually (and admittedly tediously) filled out; a more convenient alternative might involve using room memory to hold ...
 // ... route directions (having this room memory automatically filled out by something like a scout creep...)
 var travelObject = {
+    W16S22: {
+        W16S21: [30,49],
+        W16S20: [26,49],
+        W17S20: [49,25],
+        W18S20: [49,25],
+        W19S20: [49,34],
+        W19S21: [32,0],
+        W19S22: [38,0],
+    },
+    W18S22: {
+        W19S22: [49,22],
+    },
     W19S22: {
-        W21S24: [41,0],
-        W21S23: [49,41],
-        W20S23: [29,0],
-        W20S22: [49,25],
-    },
-    W21S22: {
-        W20S22: [0,40],
-        W20S23: [10,0],
-        W21S23: [49,41],
-        W21S24: [41,0],
-    },
-    W21S24: {
-        W20S22: [10,49],
-        W20S23: [0,40],
-        W21S23: [41,49],
-        W21S22: [49,43],
-        W23S24: [49,34],
-        W22S24: [49,26],
-    },
-    W23S24: {
-        W21S24: [0,26],
-        W22S24: [0,34],
+        W18S22: [0,23],
     },
 };
 
@@ -717,13 +708,14 @@ class Base {
         obj[STRUCTURE_CONTAINER] = (struct) => {
             this.containerIDs.push(struct.id); // saving id of completed container
             // finding the dropMine and updating the appropriate properties...
-            // ! note that the dropMine array entry should exist due to a prior site-registration
+            // ! note that the dropMine array entry should exist due to a prior site-registration, or else due to re-committal of code
             for (let i = 0; i < this.dropMines.length; i++) {
                 let mine = this.dropMines[i];
                 if (mine && mine.containerID == null && struct.pos.x == mine.pos.x && struct.pos.y == mine.pos.y) {
+                    // saving the containerID now that the construction site is finally a complete structure, and, hence, also removing the (construction) siteID
                     this.dropMines[i].containerID = struct.id;
                     this.dropMines[i].siteID = null;
-                    return;
+                    return; // ! ending loop and returning since the structure necessarily relates to only a single dropMine
                 }
             }
         };
@@ -804,9 +796,11 @@ class Base {
         let obj = {};
         for (let type of allSiteTypes) {
             obj[type] = {};
-            obj[type][IDS] = []; // all IDs of construction-sites in a base of "type"; ! note that all IDs will be collected at exec or recreated when 'constructionStarted' is true
+            obj[type][IDS] = []; // all IDs of construction-sites in a base of "type" 
+                                 // ! note that all IDs will be collected at exec or recreated when 'constructionStarted' is true
             obj[type][INDEX] = -1; // is the current index for IDs of "type"; is used to set "site" below; ! note that when index is NOT -1, construction is ongoing
-            obj[type][REGIS] = {}; // an object that holds, at each "index", the details of a construction-site of same index (as in "IDs") that will later need to be registered with the related function from this.structureRegistration
+            obj[type][REGIS] = {}; // an object that holds, at each "index", the details of a construction-site of same index (as in "IDs") that will later need ...
+                                   // ... to be registered with the related function from this.structureRegistration
                                    // ! note that this is only relevant to the MAIN structures currently...
             obj[type][SITE] = null; // holds the construction-site object that relevant creeps are meant to build; when set, is the site related to the ID at "index"
                                     // ! note that structure registration only happens with immediate timing when "site" was used to complete the structure
@@ -814,36 +808,45 @@ class Base {
         return obj;
     }
     
-    // this method determines the "type" of a construction-site, and then accordingly proceeds to save the ID, attempts to register the site, and attempts to pre-register the structure
+    // this method registers sites and, as needed, pre-registers the related structure for all construction sites according to their type within a base
+    // this method is only called at a specific point within the method performTickBasedChecks
     // ! "registering the site" refers to executing the appropriate this.siteRegistration function (when one exists); for example, registering a link-site ... 
     // ... so that this.linkMines (for example) could be modified when the link-site is at the intended location of a linkMine according to room memory
     // ! "pre-registering a structure" refers to saving details about a site so that when it is a finished structure we have the necessary details available ...
     // ... to call its related this.structureRegistration function (when one exists); for example, we would save details about a tower-site so that when the site ...
     // ... is finished and gone we can reference those details to make sure that a tower does exist at the specified location, and, if it does, then register the tower
-    saveAndRegisterConstructionSite(site, index, tickCount) {
-        let type; // indicates type for this.constructionSitesObject; is meant to be used thus: this.constructionSitesObject[type]
-        if (site.structureType == STRUCTURE_ROAD) { // if site is a road-site...
-            type = ROAD;
-        } else if (site.structureType == STRUCTURE_RAMPART || site.structureType == STRUCTURE_WALL) { // is a fortification-site...
-            type = FORT;
-        } else { // otherwise is a "main" site
-            type = MAIN;
-        }
-        // saving the ID...
-        this.constructionSitesObject[type][IDS].push(site.id);
-        // registering construction-site (if valid site)...
-        if (tickCount > 0 && this.siteRegistration[site.structureType]) { // if not first tick AND this is a registerable site...
-            // ! note that construction-sites should already be registered by other methods on the very first tick
-            this.siteRegistration[site.structureType](site);
-        }
-        // pre-registering the structure (if site is of valid structureType)
-        if (this.structureRegistration[site.structureType]) { // if this structureType has an associated structure registration function
-            // saving details of site (by its index) for later registration
-            this.constructionSitesObject[type][REGIS][index] = {
-                structureType: site.structureType,
-                x: site.pos.x,
-                y: site.pos.y,
-            };
+    saveAndRegisterAllConstructionSitesForBase(tickCount) {
+        let indexObj = {}; // ! note that the index must be distinct for each TYPE of construction site
+        indexObj[ROAD] = -1; // ! all indexes start at -1 because they are incremented immediately upon determining type
+        indexObj[FORT] = -1;
+        indexObj[MAIN] = -1;
+        for (let site of Game.rooms[this.baseName].find(FIND_MY_CONSTRUCTION_SITES)) {
+            let type; // indicates type for this.constructionSitesObject; is meant to be used thus: this.constructionSitesObject[type]
+            if (site.structureType == STRUCTURE_ROAD) { // if site is a road-site...
+                type = ROAD;
+            } else if (site.structureType == STRUCTURE_RAMPART || site.structureType == STRUCTURE_WALL) { // is a fortification-site...
+                type = FORT;
+            } else { // otherwise is a "main" site
+                type = MAIN;
+            }
+            // incrementing the appropriate index immediately, since all indexes started at -1
+            indexObj[type]++;
+            // saving the ID...
+            this.constructionSitesObject[type][IDS].push(site.id);
+            // registering construction-site (if valid site)...
+            if (tickCount > 0 && this.siteRegistration[site.structureType]) { // if not first tick AND this is a registerable site...
+                // ! note that construction-sites should already be registered by other methods on the very first tick
+                this.siteRegistration[site.structureType](site);
+            }
+            // pre-registering the structure (if site is of valid structureType)
+            if (this.structureRegistration[site.structureType]) { // if this structureType has an associated structure registration function
+                // saving details of site (by its index) for later registration
+                this.constructionSitesObject[type][REGIS][indexObj[type]] = {
+                    structureType: site.structureType,
+                    x: site.pos.x,
+                    y: site.pos.y,
+                };
+            }
         }
     }
     
@@ -991,11 +994,7 @@ class Base {
             console.log("Finding construction sites in "+this.baseName+"...");
             this.constructionStarted = false;
             this.resetPreregisteredSites();
-            let index = -1;
-            for (let cs of currentRoom.find(FIND_MY_CONSTRUCTION_SITES)) {
-                index++;
-                this.saveAndRegisterConstructionSite(cs, index, tickCount);
-            }
+            this.saveAndRegisterAllConstructionSitesForBase(tickCount);
             this.resetConstructionSiteIndexes(); // ! all building will start from the site at index 0...
         }
         // getting the current construction site (if any) that building creeps will be set to work with by default, according to the "type"...
@@ -2281,7 +2280,7 @@ class ScreepsScript {
             
             role[RUN_FUNCTION] = (creep) => {
                 let baseName = creep.memory.base;
-                if (remitWhenDying(creep, baseName, 200)) { return; } // ! terminate role code immediately if remitting
+                if (remitWhenDying(creep, baseName, 200, false)) { return; } // ! terminate role code immediately if remitting
                 let targetRoom = creep.memory.targetRoom;
                 let collect = setTaskForEnergyCollection(creep);
                 if (collect) {
@@ -4561,6 +4560,42 @@ class ScreepsScript {
             rolesArr.push(role);
         }
         //###############################################################################################
+        {
+            let role = makeCreepRole();
+            
+            role[ROLE_NAME] = "upgraderX";
+            
+            // the upgraderX moves to targetRoom to upgrade the controller of that room, using energy taken from own base's storage exclusively
+            // this role is meant to be used to help advance a base that has difficulty due to poor source locations, or other disadvantages
+            // ! note that this role has no spawn condition and thus must be spawned manually per base as needed
+            
+            role[RUN_FUNCTION] = (creep) => {
+                let baseName = creep.memory.base;
+                if (remitWhenDying(creep, baseName, 200, false)) { return; } // ! terminate role code immediately if remitting
+                let targetRoom = creep.memory.targetRoom;
+                let collect = setTaskForEnergyCollection(creep);
+                if (collect) {
+                    if (creep.room.name != baseName) {
+                        travelToTargetRoom(creep, 1);
+                    } else {
+                        withdrawFromLocalStorage(creep, RESOURCE_ENERGY);
+                    }
+                } else {
+                    if (creep.room.name != targetRoom) {
+                        travelToTargetRoom(creep);
+                    } else {
+                        moveToAndUpgradeTarget(creep, creep.room.controller);
+                    }
+                }
+            }
+            
+            role[REQUIRED_MEMORY] = [TARGET_ROOM];
+            
+            role[AUTOMATIC_MEMORY] = [COLLECT];
+            
+            rolesArr.push(role);
+        }
+        //###############################################################################################
         // finally, collecting all role data into appropriate class variables...
         this.uniqueRoles = rolesArr.length;
         for (let i = 0; i < rolesArr.length; i++) {
@@ -4795,7 +4830,7 @@ class ScreepsScript {
                 mso(-1, "harvester", "2m1w1c"),
                 mso(1, "distributor", "3c3m"),
                 mso(-1, "dropMiner", "6w7m1c", {required: true}),
-                mso(-1, "gatherer", "8m8c"),
+                mso(-1, "gatherer", "13m13c"), // "8m8c"),
                 mso(1, "towerCharger", "2m2c"),
                 mso(1, "paver", "6m3w3c"),
                 mso(1, "upgrader", "4w2c6m"),
@@ -4874,17 +4909,19 @@ class ScreepsScript {
         // ! note that this object is meant to be very fluid and changing, and exists so that the user can adaptively spawn units as needed per base
         // ! please see the "exclamation" notes for spawnArraysByControllerLevel for some more information
         this.spawnArraysByBase = {
+            W16S22: [
+                mso(1, "repairer", "11m4w7c", {forceCondition: true}),
+                mso(2, "upgraderS", "10m5w5c"),
+            ],
+            W18S22: [
+                //
+            ],
             W19S22: [
-                
-            ],
-            W21S24: [
-                
-            ],
-            W23S24: [
-                
+                mso(1, "upgraderX", "15m5w10c", {extraMemory: {targetRoom: "W18S22"}}),
             ],
             //W19S29: [ // EXAMPLES...
                 //mso(5, "lootingWorker", "12m4w8c"),
+                //mso(1, "upgraderX", "15m5w10c", {extraMemory: {targetRoom: "W18S22"}}),
                 //mso(1, "fortifier", "12m4w8c", {forceCondition: true}),
                 //mso(1, "paver", "8m4w4c", {spawnFor: "E8N18", forceCondition: true}),
                 //mso(4, "upgraderS", "13m8w5c"),
@@ -5180,21 +5217,24 @@ class ScreepsScript {
         // ! note that autoRoad locations will be set to room-memory regardless of the value of autoRoads; autoRoads only determines whether the roads will actually be built
         // !!!!! could add many more... such as, for example, harvester max counts per source: {... harvesterSource1MaxCount: <int>, harvesterSource2MaxCount: <int>, ...}
         this.baseBuildDetails = {
+            W16S22: {
+                baseType: 1,
+                template: 1,
+                anchor: [16,7],
+                autoRoads: true,
+            },
+            W18S22: {
+                baseType: 1,
+                template: 2,
+                anchor: [14,13],
+                autoRoads: true,
+                rotateNinetyDegrees: true,
+            },
             W19S22: {
                 baseType: 1,
                 template: 1,
                 anchor: [31,20],
                 autoRoads: true,
-            },
-            W21S24: {
-                baseType: 1,
-                template: 1,
-                anchor: [26, 21]
-            },
-            W23S24: {
-                baseType: 1,
-                template: 2,
-                anchor: [15, 38]
             },
             sim: { // ! note that the base "sim" refers to the training/simulation room
                 baseType: 1,
@@ -5632,7 +5672,7 @@ class ScreepsScript {
         }
         // setting room-memory for inner_fortifications (which refers to those structures that will be shielded with ramparts automatically)
         // ! note that only rooms with 2 (or more) sources will have inner fortifications
-        if (!room.memory[INNER_FORTIFICATIONS_SET] && room.memory[ROOM_MEMORY_SET] && room.memory[SOURCES].length >= 2) {
+        if (!room.memory[INNER_FORTIFICATIONS_SET] && room.memory[ROOM_MEMORY_SET] && room.memory[SOURCES].length >= 2) { // !!! notice that single-source rooms are excluded
             let innerF = [];
             let obj = room.memory[MAIN_STRUCTURES];
             // collecting coordinates for every main_structure besides extensions...
@@ -6058,6 +6098,9 @@ class ScreepsScript {
         } else { // when spawning for current base
             spawnFor = baseName;
         }
+        if (!Game.spawns[spawnName]) {
+            return -4; // spawn no longer exists, so cancel attempt to spawn
+        }
         if (Game.spawns[spawnName].spawning) {
             return -2; // spawn is busy...
         }
@@ -6211,6 +6254,9 @@ module.exports.loop = function () {
                             break; // move onto next spawn...
                         } else if (spawnCode == -3) { // the base does not exist or room is no longer controlled
                             continue; // continue with this spawn... (most likely the spawnFor option was used for a lost base or uncontrolled room)
+                        } else if (spawnCode == -4) { // spawn no longer exists, so cancel attempt to spawn
+                            unitWasSpawned = true; // !!!!! pretending that this spawn spawned a unit in order to ensure that another spawn in base may get to spawn
+                            break; // move onto next spawn if one exists
                         } else if (spawnCode == -5) { // spawning failed for unknown reason...
                             console.log("Spawning failed for unknown reason..."); // !!! again, I haven't seen this trigger for a long time, but it is here just in case
                         }
@@ -6264,7 +6310,7 @@ module.exports.loop = function () {
     // spawn output section...
     for (let spawnName in Game.spawns) {
         let currentSpawn = Game.spawns[spawnName];
-        if (currentSpawn.spawning) { 
+        if (currentSpawn && currentSpawn.spawning) { 
             let spawningCreep = Game.creeps[currentSpawn.spawning.name];
             currentSpawn.room.visual.text(spawningCreep.memory.role,
                                           currentSpawn.pos.x + 1, 

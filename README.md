@@ -108,7 +108,7 @@ For more details about the ***mso*** function, the ***spawnArraysByControllerLev
 ## Bugs and other issues
 Throughout my code, there are comments whose text has been preceded by "!!!!!" or "!!!"; this indicates a place in the code where there is, in that local section of code, significant room for improvement or some sort of an issue to be addressed. Note that comments preceded by "!" are simply notes of greater importance that explain things that may be either very important or sometimes not particularly obvious.
 
-I have recently respawned in the game to try running things from the beginning and have verified that most things work as expected. A few issues do remain, such as the dropMiner setup not always building itself out autonomously... (to fix this, simply re-commit the code). There is also still the issue that at controller level 5 ramparts that where intended to be built over central important structures do not get their construction sites set due to the main structure still existing only as a construction site. (This can be resolved by waiting long, or by performing another recommit once the main structure is complete.)
+I have recently respawned in the game to try running things from the beginning and have verified that nearly everything works as expected. A few issues do remain, however, such as how at controller level 5 ramparts that where intended to be built over central important structures do not get their construction sites set due to the main structure still existing only as a construction site. (This can be resolved by waiting long enough -- until the controller levels up again -- or by performing another recommit once the main structure is complete.)
 
 Other issues or bugs likely exist.
 

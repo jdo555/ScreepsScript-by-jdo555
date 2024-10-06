@@ -1,6 +1,9 @@
 // destroy all walls in room
 { let room = ""; for (let st of Game.rooms[room].find(FIND_STRUCTURES, {filter: {structureType: STRUCTURE_WALL}})) { st.destroy(); }}
 
+// destroy all construction sites in room
+{ let room = ""; for (let cs of Game.rooms[room].find(FIND_CONSTRUCTION_SITES)) { cs.remove(); }}
+
 // destroy all structures in room (except Nuker)
 { let room = ""; for (let st of Game.rooms[room].find(FIND_STRUCTURES)) { if (st.structureType != STRUCTURE_NUKER) { st.destroy(); }}}
 
