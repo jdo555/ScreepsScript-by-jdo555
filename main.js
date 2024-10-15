@@ -13,7 +13,24 @@
 // !!! note that this object is meant to be manually (and admittedly tediously) filled out; a more convenient alternative might involve using room memory to hold ...
 // ... route directions (having this room memory automatically filled out by something like a scout creep...)
 var travelObject = {
+    W13S22: {
+        W14S22: [49,39],
+        W15S22: [49,20],
+        W16S22: [49,22],
+    },
+    W15S20: {
+        W16S20: [49,36],
+        W16S21: [29,0],
+        W16S22: [30,0],
+    },
+    W16S21: {
+        W16S22: [30, 0],
+    },
     W16S22: {
+        W13S22: [0,39],
+        W14S22: [0,20],
+        W15S20: [0,36],
+        W15S22: [0,21],
         W16S21: [30,49],
         W16S20: [26,49],
         W17S20: [49,25],
@@ -897,6 +914,9 @@ class Base {
             if (this.lastControllerLevel < currentRoom.controller.level) {
                 this.lastControllerLevel = currentRoom.controller.level;
                 this.controllerLeveledUp = true;
+                if (currentRoom.controller.level == 6) {
+                    this.prepareUpgradeMineDataForBase(); // setting this.upgradeMine for the base if applicable (because it just reached cLvl 6)
+                }
             } // !!! what about clvl downgrades...?
         }
         
@@ -1284,6 +1304,7 @@ class ScreepsScript {
         const TARGET_TYPE = "targetType";
         const TARGET_SOURCE = "targetSource";
         const TARGET_COORDS = "targetCoords";
+        const TARGET_AMOUNT = "targetAmount";
         const TO_ROOM = "toRoom";
         const FROM_ROOM = "fromRoom";
         const TO_STRUCTURE = "toStructure";
@@ -1294,6 +1315,7 @@ class ScreepsScript {
         const ALLY_ID = "allyID";
         const LINK_ID = "linkID";
         const RESOURCE_TYPE = "resourceType";
+        const RESOURCE_THRESHOLD = "resourceThreshold";
         const TASK = "task";
         const MIN_HITS = "minHits";
         const X = "x";
@@ -1450,6 +1472,7 @@ class ScreepsScript {
         // when spawnScavenger is set to true, a scavenger should eventually spawn (due to Base triggers) to collect any dropped resources from recycling...
         // this method is mostly intended to be used on miner creeps, such as when they are to be replaced by another miner type (such as harvesters replaced by dropMiner)
         // ! this function's return value must be used to trigger an end to the creep's role code in order to prevent the role code from interfering with scheduled actions
+        // ! note that only those creep-roles with an appropriate spawn condition should ever be set to recycle, else they might endlessly spawn and then immediately recycle
         let recycleWhenRedundant = (creep, baseName, spawnScavenger=false) => {
             if (!creep.memory.recycle) { // ! if NOT recycling
                 return false;
@@ -1754,16 +1777,16 @@ class ScreepsScript {
         }
         
         // sets a target in creep's memory, with targetID, according to the passed array priorities, returning the target object at end (which may be undefined)
-        // ! note that this function uses findClosestByRange for every target selection WITHOUT any checks at to whether the target might have moved, died, is empty, etc....
         // priorities is an array of FIND_* constants, indicating the order of the search
-        let getClosestTargetByPriority = (creep, priorites) => {
-            let findTarget = false;
+        let getClosestTargetByPriority = (creep, priorities) => {
+            let findTarget = true;
             let target;
             let targetID = creep.memory.targetID;
             if (targetID) {
-                target = Game.getObjectById(targetID)
-            } else {
-                findTarget = true;
+                target = Game.getObjectById(targetID);
+                if (target) {
+                    findTarget = false;
+                }
             }
             if (findTarget) {
                 for (let findConstant of priorities) {
@@ -2271,15 +2294,16 @@ class ScreepsScript {
             
             role[ROLE_NAME] = "builderX";
             
-            // the builderX moves to targetRoom to build a specified (by targetID) site, using energy taken from storage exclusively
-            // when creep's memory option useBaseStorage is true, collects energy from base's storage; when false, collects energy from targetRoom's storage
-            // once the target site is completed, this role will work on MAIN sites if targetRoom is a base; otherwise this role will do nothing
-            // this role is meant to be used to help building in less developed bases
-            // !!! a spawn-condition would be useful to have for a few reasons... then this role could be recyclable potentially...
-            // ... a spawn-condition should at least check for the existence of site by targetID...
+            // the builderX moves to targetRoom to build sites of any type, prioritizing the target indicated by TARGET_ID (if set), only using energy taken from storage
+            // when creep's memory option useBaseStorage is true (the default), collects energy from base's storage; when false, collects energy from targetRoom's storage
+            // once all site types in the TARGET_ROOM have been completed, this role will recycle
+            // this role will only spawn when some construction site exists in TARGET_ROOM
+            // this role is meant to be spawned as need to help with building sites in less developed bases
+            // !!! note that the spawning of this role is not restricted by the relevant storage's quantity of energy
             
             role[RUN_FUNCTION] = (creep) => {
                 let baseName = creep.memory.base;
+                if (recycleWhenRedundant(creep, baseName, true)) { return; } // ! terminate role code immediately if recycling
                 if (remitWhenDying(creep, baseName, 200, false)) { return; } // ! terminate role code immediately if remitting
                 let targetRoom = creep.memory.targetRoom;
                 let collect = setTaskForEnergyCollection(creep);
@@ -2302,34 +2326,43 @@ class ScreepsScript {
                         travelToTargetRoom(creep);
                     } else {
                         let site = Game.getObjectById(creep.memory.targetID);
-                        if (!site) {
-                            let base = this.bases[targetRoom];
-                            if (base) { // if the target room is a base
-                                site = base.constructionSitesObject[MAIN][SITE];
-                            }
-                        }
                         if (site) {
-                            moveToAndBuildTarget(creep, target);
+                            moveToAndBuildTarget(creep, site);
                         } else {
-                            rallyAtWaitLocation(creep, baseName);
+                            let base = this.bases[targetRoom];
+                            if (base && transferEnergyByPriority(creep, [ base.constructionSitesObject[MAIN][SITE],
+                                                                          base.constructionSitesObject[FORT][SITE],
+                                                                          base.constructionSitesObject[ROAD][SITE] ])) {
+                                // ! when true, a build action has been scheduled, and nothing else needs be done
+                            } else {
+                                creep.memory.recycle = true; // ! creep is no longer needed because all construction is finished (or else base is gone)
+                            }
                         }
                     }
                 }
             }
             
-            // !!! would benefit from a spawn condition...
-            //role[SPAWN_CONDITION] = (baseName) => {}
+            role[SPAWN_CONDITION] = (baseName, curCount, extraMemory) => {
+                let trb = this.bases[extraMemory[TARGET_ROOM]]; // ! trb here means Target Room Base...
+                // if TARGET_ROOM is a base and there are construction sites within it...
+                if (trb && (trb.constructionSitesObject[MAIN][SITE] || trb.constructionSitesObject[FORT][SITE] || trb.constructionSitesObject[ROAD][SITE])) {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
             
             role[BIRTH_FUNCTION] = (creepName) => {
                 let creep = Game.creeps[creepName];
+                setManualMemoryForCreepWhenUndefined(creep, [TARGET_ID]);
                 if (creep.memory.useBaseStorage == null) {
                     creep.memory.useBaseStorage = true;
                 }
             }
             
-            role[REQUIRED_MEMORY] = [TARGET_ROOM, TARGET_ID];
+            role[REQUIRED_MEMORY] = [TARGET_ROOM];
             
-            role[AUTOMATIC_MEMORY] = [COLLECT];
+            role[AUTOMATIC_MEMORY] = [RECYCLE, COLLECT];
             
             rolesArr.push(role);
         }
@@ -2340,9 +2373,11 @@ class ScreepsScript {
             role[ROLE_NAME] = "claimer";
             
             // the claimer interacts with a controller in targetRoom, based on the task held in its memory...
-            // with task set to 1, the role will reserve the controller
+            // with task set to 0, the role will reserve the controller
+            // with task set to 1, the role will attack the controller
             // with task set to 2, the role will claim the controller
             // with task set to 3, the role will attack the controller until it can be claimed, at which point the claimer will claim it
+            // !!! note that this role has no spawn condition yet
             
             role[RUN_FUNCTION] = (creep) => {
                 if (creep.room.name != creep.memory.targetRoom) {
@@ -2371,6 +2406,13 @@ class ScreepsScript {
                 }
             }
             
+            // !!!!!! consider creating a spawn condition...
+            //role[SPAWN_CONDITION] = (baseName, curCount, extraMemory) => {
+            //    let room = Game.rooms[extraMemory[TARGET_ROOM]];
+            //    let task = extraMemory[TASK];
+            //    let ct = (room) ? room.controller : null;
+            //}
+            
             role[REQUIRED_MEMORY] = [TARGET_ROOM, TASK];
             
             rolesArr.push(role);
@@ -2382,9 +2424,11 @@ class ScreepsScript {
             role[ROLE_NAME] = "contributor";
             
             // the contributor takes resourceType from the base's storage, and then carries it to targetRoom to transfer it into that room's storage
+            // ! note that this role will only spawn when the base's storage has a quantity of resourceType greater than the provided memory value of RESOURCE_THRESHOLD; ...
+            // ... once spawned, this role will continue to attempt to move resources for its entire lifespan, irrespective of the current quantity of resourceType at base
+            // ! note that this role pays no heed to how full the targetRoom's storage might be, or to how overstocked it might be relative to resourceType
             // this role will commit suicide rather than collect more resources for delivery if dying; change the remitWhenDying value to adjust when this happens
-            // !!! note that this role currently has no start or stop point, and will simply move everything and even continue spawning until manually removed from spawn array
-            // !!!!! there is also nothing in the code currently that prevents baseName and targetRoom from being the same
+            // this role is meant to be spawned manually per base as needed to balance out storage inventory or to assist bases with comparatively depleted stores
             
             role[RUN_FUNCTION] = (creep) => {
                 let resourceType = creep.memory.resourceType;
@@ -2406,10 +2450,24 @@ class ScreepsScript {
                 }
             }
             
-            // !!! would benefit from a spawn condition...
-            //role[SPAWN_CONDITION] = (baseName) => {}
+            role[SPAWN_CONDITION] = (baseName, curCount, extraMemory) => {
+                if (baseName == extraMemory[TARGET_ROOM]) {
+                    console.log("WARNING: targetRoom and baseName are equivalent when attempting to spawn contributor (in base "+baseName+"); cancelling spawn attempt.");
+                    return false;
+                } else {
+                    let baseRoom = Game.rooms[baseName];
+                    let targetRoom = Game.rooms[extraMemory[TARGET_ROOM]];
+                    let resourceType = extraMemory[RESOURCE_TYPE];
+                    let threshold = extraMemory[RESOURCE_THRESHOLD];
+                    if (baseRoom.storage.store.getUsedCapacity(resourceType) > threshold) {
+                        return true;
+                    } else {
+                        return false;
+                    }
+                }
+            }
             
-            role[REQUIRED_MEMORY] = [TARGET_ROOM, RESOURCE_TYPE];
+            role[REQUIRED_MEMORY] = [TARGET_ROOM, RESOURCE_TYPE, RESOURCE_THRESHOLD];
             
             role[AUTOMATIC_MEMORY] = [RECYCLE, COLLECT];
             
@@ -2699,14 +2757,12 @@ class ScreepsScript {
             
             role[ROLE_NAME] = "forager";
             
-            // the forager moves to targetRoom to collect (by automatic detection) from deposits or sources; it then brings all collected resources back to base
-            // it will transfer everything to storage, except energy when a linkID is set (!!! this is in flux !!!)...
-            // !!!!! this role is currently incomplete and untested...
-            // !!! needs a proper spawn-condition; also, the linkID related stuff is very inadequate for now (in that the link must be manually built and link code may be otherwise inadequate)
+            // the forager moves to targetRoom to collect (by automatic detection) from deposits or sources; it then brings collected resources back to base's storage
+            // this role is meant to be spawned as needed per base, to harvest energy in adjacent rooms, or else to collect from deposits (metal, etc.) in nearby travel zones
+            // ! note that this role does NOT collect common minerals (such as from an extractor)
             
             role[RUN_FUNCTION] = (creep) => {
                 let baseName = creep.memory.base;
-                if (recycleWhenRedundant(creep, baseName)) { return; } // ! terminate role code immediately if recycling
                 if (remitWhenDying(creep, baseName, 200)) { return; } // ! terminate role code immediately if remitting
                 let collect = setTaskForGeneralCollection(creep);
                 if (collect) {
@@ -2717,28 +2773,16 @@ class ScreepsScript {
                         if (target) {
                             moveToAndHarvestFromTarget(creep, target, {reusePath: 30});
                         } else {
-                            // !!! a proper spawn-condition is necessary before recycling can be allowed (otherwise may spawn and recycle indefinitely)...
-                            // ... for now this unit's spawning must be handled manually
-                            //creep.memory.recycle = true; // ! creep is no longer needed due to source or deposit no long existing in room...
+                            // !!! the deposit must have expired, and none exists in the room...
                         }
                     }
                 } else {
                     if (creep.room.name != baseName) {
                         travelToTargetRoom(creep, 1);
                     } else {
-                        let target = Game.getObjectById(creep.memory.linkID);
-                        if (creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0 && target) {
-                            transferEnergyToTarget(creep, target);
-                        } else {
-                            transferAllCarriedToTarget(creep, creep.room.storage, {reusePath: 30})
-                        }
+                        transferAllCarriedToTarget(creep, creep.room.storage, {reusePath: 30})
                     }
                 }
-            }
-            
-            role[BIRTH_FUNCTION] = (creepName) => {
-                let creep = Game.creeps[creepName];
-                setManualMemoryForCreepWhenUndefined(creep, [LINK_ID]);
             }
             
             role[REQUIRED_MEMORY] = [TARGET_ROOM];
@@ -3042,7 +3086,7 @@ class ScreepsScript {
             
             role[SPAWN_CONDITION] = (baseName, curCount) => {
                 let base = this.bases[baseName];
-                if (curCount < base.getHarvestingPositionCountForBase() * 2) { // ! notice the multiplication! // !!!!! make this multiple flexible and base-dependent...
+                if (curCount < base.getHarvestingPositionCountForBase() * 2) { // ! at most, 2 harvesters are allowed to work each harvesting position
                     return true;
                 } else {
                     return false;
@@ -3556,17 +3600,18 @@ class ScreepsScript {
             
             role[ROLE_NAME] = "mover";
             
-            // the mover collects resourceType from fromStructure in fromRoom, and then moves it to toStructure in toRoom (all based on the creep's memory)
+            // the mover collects resourceType from fromStructure in fromRoom, and then moves it to toStructure in toRoom, until fromStructure no longer has resourceType ...
+            // ... or until toStructure has at least targetAmount (all based on unit memory)
+            // ! note that TO_STRUCTURE and FROM_STRUCTURE must both be set to the id of the relevant structures
+            // !!! note that targetAmount does not restrict how much the creep withdraws from fromStructure; the creep will always try to carry at maximum capacity
             // this role is to be used to move excessive or needed resources from one base to another base, or else to move resources from one structure ...
             // ... to another structure within the same room (such as from storage to terminal or vise versa)
             // ! note that this role has a special memory option called remittingTick, which can be manually set (but is otherwise flexibly set by birth function) ...
             // ... to help to better control timing for the remitWhenDying functionality
-            // !!! note that this role only moves ALL of a single resource, and may not immediately complete its last transfer due to not filling own personal store, ...
-            // ... although it would eventually remit; make this role work until there is at least "targetAmount" in the toStructure
-            // !!! this role should have a spawn condition set up after the above issues have been resolved; (a spawn condition should perhaps look to see if there ...
-            // ... is at least some of resourceType in fromStructure, while confirming that targetAmount (in toStructure) was not yet met...
             
             role[RUN_FUNCTION] = (creep) => {
+                let baseName = creep.memory.base;
+                if (recycleWhenRedundant(creep, baseName, true)) { return; } // ! terminate role code immediately if recycling
                 if (remitWhenDying(creep, baseName, creep.memory.remittingTick)) { return; } // ! terminate role code immediately if remitting
                 let collect = setTaskForGeneralCollection(creep);
                 if (collect) {
@@ -3574,9 +3619,20 @@ class ScreepsScript {
                     if (creep.room.name != fromRoom) {
                         travelToTargetRoom(creep, 2, fromRoom);
                     } else {
-                        let target = Game.getObjectById(creep.memory.fromStructure);
-                        if (target) {
-                            moveToAndWithdrawResourceFromTarget(creep, target, creep.memory.resourceType);
+                        let fromStructure = Game.getObjectById(creep.memory.fromStructure);
+                        let toStructure = Game.getObjectById(creep.memory.toStructure);
+                        let resourceType = creep.memory.resourceType;
+                        if (!fromStructure || !toStructure) {
+                            creep.memory.recycle = true; // ! creep is no longer needed due to missing structures
+                        } else if (fromStructure.store.getUsedCapacity(resourceType) == 0 || toStructure.store.getUsedCapacity(resourceType) >= creep.memory[TARGET_AMOUNT]) {
+                            if (creep.store.getUsedCapacity() == 0) {
+                                creep.memory.recycle = true; // ! creep is no longer needed since resourceType is depleted or enough has been moved
+                            } else {
+                                // manually changinging COLLECT memory attribute to ensure that creep will move remaining carried resourceType
+                                creep.memory.collect = false;
+                            }
+                        } else {
+                            moveToAndWithdrawResourceFromTarget(creep, fromStructure, resourceType);
                         }
                     }
                 } else {
@@ -3584,11 +3640,30 @@ class ScreepsScript {
                     if (creep.room.name != toRoom) {
                         travelToTargetRoom(creep, 2, toRoom);
                     } else {
-                        let target = Game.getObjectById(creep.memory.toStructure);
-                        if (target) {
-                            moveToAndTransferResourceToTarget(creep, target, creep.memory.resourceType);
+                        let toStructure = Game.getObjectById(creep.memory.toStructure);
+                        if (toStructure) {
+                            moveToAndTransferResourceToTarget(creep, toStructure, creep.memory.resourceType);
+                        } else {
+                            creep.memory.recycle = true; // ! creep is no longer needed due to missing toStructure
                         }
                     }
+                }
+            }
+            
+            role[SPAWN_CONDITION] = (baseName, curCount, extraMemory) => {
+                let resourceType = extraMemory[RESOURCE_TYPE];
+                let targetAmount = extraMemory[TARGET_AMOUNT];
+                let fromRoom = Game.rooms[extraMemory[FROM_ROOM]];
+                let toRoom = Game.rooms[extraMemory[TO_ROOM]];
+                let fromStructure = Game.getObjectById(extraMemory[FROM_STRUCTURE]);
+                let toStructure = Game.getObjectById(extraMemory[TO_STRUCTURE]);
+                if (fromRoom && toRoom
+                             && Number.isInteger(targetAmount)
+                             && fromStructure && fromStructure.store && fromStructure.store.getUsedCapacity(resourceType)
+                             && toStructure && toStructure.store && toStructure.store.getUsedCapacity(resourceType) < targetAmount) {
+                    return true;
+                } else {
+                    return false;
                 }
             }
             
@@ -3601,7 +3676,7 @@ class ScreepsScript {
             
             role[AUTOMATIC_MEMORY] = [COLLECT];
             
-            role[REQUIRED_MEMORY] = [RESOURCE_TYPE, TO_ROOM, FROM_ROOM, TO_STRUCTURE, FROM_STRUCTURE];
+            role[REQUIRED_MEMORY] = [RESOURCE_TYPE, TARGET_AMOUNT, TO_ROOM, FROM_ROOM, TO_STRUCTURE, FROM_STRUCTURE];
             
             rolesArr.push(role);
         }
@@ -4391,6 +4466,7 @@ class ScreepsScript {
             
             role[RUN_FUNCTION] = (creep) => {
                 let baseName = creep.memory.base;
+                if (remitWhenDying(creep, baseName, 23, false)) { return; } // ! terminate role code immediately if remitting
                 if (creep.room.name != baseName) {
                     travelToTargetRoom(creep, 1);
                 } else {
@@ -4830,7 +4906,7 @@ class ScreepsScript {
                 mso(-1, "harvester", "2m1w1c"),
                 mso(1, "distributor", "3c3m"),
                 mso(-1, "dropMiner", "6w7m1c", {required: true}),
-                mso(-1, "gatherer", "13m13c"), // "8m8c"),
+                mso(-1, "gatherer", "8m8c"),
                 mso(1, "towerCharger", "2m2c"),
                 mso(1, "paver", "6m3w3c"),
                 mso(1, "upgrader", "4w2c6m"),
@@ -4909,25 +4985,32 @@ class ScreepsScript {
         // ! note that this object is meant to be very fluid and changing, and exists so that the user can adaptively spawn units as needed per base
         // ! please see the "exclamation" notes for spawnArraysByControllerLevel for some more information
         this.spawnArraysByBase = {
+            W13S22: [
+                //
+            ],
             W16S22: [
-                mso(1, "repairer", "11m4w7c", {forceCondition: true}),
-                mso(2, "upgraderS", "10m5w5c"),
+                //mso(1, "forager", "2c10w12m", {extraMemory: {targetRoom: "W15S20"}}),
+                mso(2, "upgraderS", "17m10w7c"),
             ],
             W18S22: [
                 //
             ],
             W19S22: [
-                mso(1, "upgraderX", "15m5w10c", {extraMemory: {targetRoom: "W18S22"}}),
+                //
             ],
             //W19S29: [ // EXAMPLES...
                 //mso(5, "lootingWorker", "12m4w8c"),
+                //mso(1, "forager", "5c8w13m", {extraMemory: {targetRoom: "W16S21"}}),
                 //mso(1, "upgraderX", "15m5w10c", {extraMemory: {targetRoom: "W18S22"}}),
                 //mso(1, "fortifier", "12m4w8c", {forceCondition: true}),
                 //mso(1, "paver", "8m4w4c", {spawnFor: "E8N18", forceCondition: true}),
                 //mso(4, "upgraderS", "13m8w5c"),
                 //mso(1, "scavenger", "2m2c"),
+                //mso(1, "mover", "8m8c", {extraMemory: {toRoom: "W16S22", fromRoom: "W16S22", resourceType: "GO", targetAmount: 1000, fromStructure: "66fd8de4ac845b6e1b0474c7", toStructure: "670caaf206c3a2cf8dca25e5"}}),
                 //mso(8, "harvester", "10m5w5c", {spawnFor: "E7N18"}),
+                //mso(1, "contributor", "5m5c", {extraMemory: {targetRoom: "W18S22", resourceType: "energy", resourceThreshold: 250000}}),
                 //mso(-1, "dropMiner", "6w7m1c"),
+                //mso(2, "builderX", "15m5w10c", {extraMemory: {targetRoom: "W13S22", targetID: "670671dc8f87a50214bd00e4"}}),
                 //mso(1, "peeker", "13h13m", {extraMemory: {peekedRoom: "E9N19", targetRoom: "E8N19", waitX: 48, waitY: 42, enterX: 49, enterY: 41, peekX: 1, peekY: 42, exitX: 0, exitY: 41}}),
                 //mso(5, "looterE", "17m17c", {extraMemory: {targetRoom: "E8N19"}}),
                 //mso(1, "looterM", "13c13m", {spawnFor: "W17S29", extraMemory: {targetRoom: "W19S33", targetID: "61476518d8dc4851ee3262e2", resourceType: "metal"}}),
@@ -4940,7 +5023,6 @@ class ScreepsScript {
                 //mso(1, "guard", "25m5t3h12a5r", {extraMemory: {targetRoom: "W20S24", x: 39, y: 40}}),
                 //mso(1, "specificBuilder", "14m7c7w", {extraMemory: {targetRoom: "W21S24", targetID: "61e0f2cc9d5b4777bad8114a"}}),
                 //mso(1, "antagonizer", "6t6h12m", {extraMemory: {targetRoom: "W23S23", x: 3, y: 48}}),
-                //mso(8, "contributor", "25m25c", {extraMemory: {targetRoom: "W25S17"}}),
                 //mso(2, "raider", "5t12m3r4h"),
                 //mso(6, "harvester", "15m10w5c", {spawnFor: "W29S32"}),
                 //mso(1, "demolisher", "15m15w", {extraMemory: {targetRoom: "W29S32", targetID: "61cb30ce7d8132f3e806aac2"}}),
@@ -5217,6 +5299,12 @@ class ScreepsScript {
         // ! note that autoRoad locations will be set to room-memory regardless of the value of autoRoads; autoRoads only determines whether the roads will actually be built
         // !!!!! could add many more... such as, for example, harvester max counts per source: {... harvesterSource1MaxCount: <int>, harvesterSource2MaxCount: <int>, ...}
         this.baseBuildDetails = {
+            W13S22: {
+                baseType: 1,
+                template: 2,
+                anchor: [6,32],
+                autoRoads: true,
+            },
             W16S22: {
                 baseType: 1,
                 template: 1,
@@ -6104,11 +6192,16 @@ class ScreepsScript {
         if (Game.spawns[spawnName].spawning) {
             return -2; // spawn is busy...
         }
+        // collecting extraMemory for the spawnCondition function
+        let extraMemory = null;
+        if (optionsPassed && spawnObj.options.extraMemory) {
+            extraMemory = spawnObj.options.extraMemory;
+        }
         // when unit has a special maxCount (denoted by -1) OR its count is less than maxCount
         // ...AND...
         // spawning is forced OR spawn condition is met
         if ((spawnObj.maxCount == -1 || this.bases[spawnFor].roleCounts[spawnObj.roleType] < spawnObj.maxCount) && 
-            ((optionsPassed && spawnObj.options.forceCondition) || this.roles[spawnObj.roleType].spawnCondition(spawnFor, this.bases[spawnFor].roleCounts[spawnObj.roleType]))) {
+            ((optionsPassed && spawnObj.options.forceCondition) || this.roles[spawnObj.roleType].spawnCondition(spawnFor, this.bases[spawnFor].roleCounts[spawnObj.roleType], extraMemory))) {
             if (spawnObj.bodyObj.cost > Game.rooms[baseName].energyAvailable) { // if the spawning CANNOT be afforded
                 if (spawnObj.options && spawnObj.options.required) { // if the unit is required...
                     return -1; // stop early because a required unit cannot be spawned...
@@ -6124,9 +6217,9 @@ class ScreepsScript {
             let newName = spawnObj.roleType + "_" + this.bases[spawnFor].baseNumber + "_" + this.bases[baseName].baseNumber + "_" + spawnIndex + "_" + Game.time;
             let memoryObj = {role: spawnObj.roleType, base: spawnFor};
             // adding any "extra memory" (if passed) to the creep's memory
-            if (optionsPassed && spawnObj.options.extraMemory) {
-                for (let p in spawnObj.options.extraMemory) {
-                    memoryObj[p] = spawnObj.options.extraMemory[p];
+            if (extraMemory) {
+                for (let p in extraMemory) {
+                    memoryObj[p] = extraMemory[p];
                 }
             }
             if (Game.spawns[spawnName].spawnCreep(spawnObj.bodyObj.body, newName, {memory: memoryObj}) == OK) { // if the creep can be spawned
