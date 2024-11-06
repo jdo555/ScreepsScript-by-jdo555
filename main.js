@@ -42,8 +42,12 @@ var travelObject = {
     W18S22: {
         W19S22: [49,22],
     },
+    W19S21: {
+        W19S22: [38,0],
+    },
     W19S22: {
         W18S22: [0,23],
+        W19S21: [38,49],
     },
 };
 
@@ -768,14 +772,13 @@ class Base {
                 }
             }
             if (curRoom.memory[CONTROLLER_LINK_SET]) {
-                // !!!!!!!!!!!!! needs to be tested...
-                let coord = curRoom.memory(CONTROLLER_LINK);
+                let coord = curRoom.memory[CONTROLLER_LINK];
                 if (struct.pos.x == coord[0] && struct.pos.y == coord[1]) {
                     this.controllerLinkID = struct.id;
                     return;
                 }
             }
-            console.log("LINK NOT FOUND!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            console.log("WARNING: A link was not registered as a centralLink, linkMine-link, or controllerLink!");
         };
         obj[STRUCTURE_POWER_SPAWN] = (struct) => {
             this.powerSpawnID = struct.id;
@@ -2274,7 +2277,7 @@ class ScreepsScript {
             role[SPAWN_CONDITION] = (baseName) => {
                 let site = this.bases[baseName].constructionSitesObject[MAIN][SITE];
                 let room = Game.rooms[baseName];
-                if (room.controller.level >= 7 && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) < 45000) { // !!!!!!!! TEMP (this is to ensure that builder does not deplete storage when building expensive structures)
+                if (room.controller.level >= 6 && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) < 45000) { // !!!!!!!! TEMP (this is to ensure that builder does not deplete storage when building expensive structures)
                     return false;
                 }
                 if (site) {
@@ -3366,10 +3369,9 @@ class ScreepsScript {
             // the linkUpgrader moves to the controllerLink in base, and then withdraws energy from it in order to upgrade the controller
             // note that because of the placement of the controllerLink, this role never moves again after first reaching the controllerLink
             // this role will only spawn when the controllerLink exists, and will recycle if it is destroyed (!!! or no longer usable due to reduced controller level [will it though?])
-            // ! note that this role is usable at earliest at controller level 6 (when there is one source), and otherwise at 7 (when there are two sources); ...
+            // ! note that this role is usable, at earliest, at controller level 6 (when there is one source), and otherwise at 7 (when there are two sources); ...
             // ... these values are based on the constants CONTROLLER_LINK_EARLY_CLVL and CONTROLLER_LINK_LATE_CLVL as used in checkBaseStructuresAgainstRoomMemory; ...
-            // ... these restrictions are in place because of the limited availability of links for building; and linkMiners are given priority for link access
-            // !!! this role NEEDS to be tested again...
+            // ... these restrictions are in place because of the limited availability of links for construction; and linkMiners are given priority for link access
             
             role[RUN_FUNCTION] = (creep) => {
                 let baseName = creep.memory.base;
@@ -3392,7 +3394,10 @@ class ScreepsScript {
             }
             
             role[SPAWN_CONDITION] = (baseName) => {
-                if (this.bases[baseName].controllerLinkID && Game.getObjectById(this.bases[baseName].controllerLinkID)) {
+                let base = this.bases[baseName];
+                let curRoom = Game.rooms[baseName];
+                if (base.controllerLinkID && Game.getObjectById(base.controllerLinkID)
+                        && curRoom.storage && curRoom.storage.my && curRoom.storage.store.getUsedCapacity(RESOURCE_ENERGY) > UPGRADER_EARLY_SPAWN_THRESHOLD) {
                     return true;
                 } else {
                     return false;
@@ -4942,7 +4947,7 @@ class ScreepsScript {
                 mso(1, "repairer", "10m5w5c"),
                 mso(1, "linkUpgrader", "5m5w1c"),
                 mso(1, "upgrader", "6m3w3c"),
-                mso(1, "upgraderS", "15m10w5c"),
+                mso(2, "upgraderS", "15m10w5c"),
                 ],
             7: [mso(2, "fighter", "10t20m10a"),
                 mso(-1, "scavenger", "3c3m"),
@@ -4990,13 +4995,13 @@ class ScreepsScript {
             ],
             W16S22: [
                 //mso(1, "forager", "2c10w12m", {extraMemory: {targetRoom: "W15S20"}}),
-                mso(2, "upgraderS", "17m10w7c"),
             ],
             W18S22: [
                 //
             ],
             W19S22: [
-                //
+                mso(1, "forager", "15c5w20m", {extraMemory: {targetRoom: "W19S21"}}),
+                mso(1, "builderX", "9m3w6c", {extraMemory: {targetRoom: "W18S22"}}),
             ],
             //W19S29: [ // EXAMPLES...
                 //mso(5, "lootingWorker", "12m4w8c"),
@@ -5006,6 +5011,7 @@ class ScreepsScript {
                 //mso(1, "paver", "8m4w4c", {spawnFor: "E8N18", forceCondition: true}),
                 //mso(4, "upgraderS", "13m8w5c"),
                 //mso(1, "scavenger", "2m2c"),
+                //mso(1, "scavenger", "2m2c", {forceCondition: true}),
                 //mso(1, "mover", "8m8c", {extraMemory: {toRoom: "W16S22", fromRoom: "W16S22", resourceType: "GO", targetAmount: 1000, fromStructure: "66fd8de4ac845b6e1b0474c7", toStructure: "670caaf206c3a2cf8dca25e5"}}),
                 //mso(8, "harvester", "10m5w5c", {spawnFor: "E7N18"}),
                 //mso(1, "contributor", "5m5c", {extraMemory: {targetRoom: "W18S22", resourceType: "energy", resourceThreshold: 250000}}),
@@ -5019,7 +5025,6 @@ class ScreepsScript {
                 //mso(3, "attacker", "5t10a15m", {extraMemory: {targetRoom: "W23S23", targetID: "607d964bcf415432f6b5c366", wait: true}}),
                 //mso(2, "healerX", "2t6h8m", {extraMemory: {targetID: "61e4b93db2985ecac57e3877"}}),
                 //mso(4, "healer", "25h25m", {extraMemory: {targetRoom: "W20S26"}}),
-                //mso(1, "harvesterT", "24m15w9c", {extraMemory: {targetRoom: "W20S24", sourceID: "60a09421741d8a681bbae7d3"}}),
                 //mso(1, "guard", "25m5t3h12a5r", {extraMemory: {targetRoom: "W20S24", x: 39, y: 40}}),
                 //mso(1, "specificBuilder", "14m7c7w", {extraMemory: {targetRoom: "W21S24", targetID: "61e0f2cc9d5b4777bad8114a"}}),
                 //mso(1, "antagonizer", "6t6h12m", {extraMemory: {targetRoom: "W23S23", x: 3, y: 48}}),
@@ -6438,7 +6443,7 @@ module.exports.loop = function () {
             }
         }
         if (null) { //////////////////////////////////////// BUY NEW RESOURCES HERE //////////////////////////////////////////////
-            let myRoom = "E8N17"; // !!!
+            let myRoom = "W19S22"; // !!!
             let boughtResource = RESOURCE_POWER; // !!!
             let maxCostEach = 500; // !!!
             let maxQuantityPurchased = 5000; // !!!
