@@ -137,7 +137,6 @@ const FORTIFICATIONS_MIN_CONTROLLER_LEVEL = 5;
 
 const CONTROLLER_LINK_MIN_ENERGY = 400;
 const MAXIMUM_AMOUNT_TO_TRANSFER_TO_CONTROLLER_LINK = 1000 - CONTROLLER_LINK_MIN_ENERGY; // 1000 is the maximum capacity of any link
-const MINIMUM_AMOUNT_TO_TRANSFER_TO_CONTROLLER_LINK = 150; // ! this value must be less than the above constant's value, and must not exceed the cLvl 6 overseer's carrying capacity
 
 const ROAD = "road";
 const FORT = "fort";
@@ -3723,8 +3722,24 @@ class ScreepsScript {
                             creep.transfer(creep.room.storage, heldResource);
                             return;
                         }
-                        // TASK: moving energy from central link to storage...
+                        // TASK: transferring energy to central-link when controller-link exists in base and it needs more energy
                         let link = Game.getObjectById(base.centralLinkID);
+                        let controllerLink;
+                        if (base.controllerLinkID) {
+                            controllerLink = Game.getObjectById(base.controllerLinkID);
+                        }
+                        if (controllerLink && link.cooldown == 0 && link.store.getUsedCapacity(RESOURCE_ENERGY) < CONTROLLER_LINK_MIN_ENERGY
+                                           && controllerLink.store.getUsedCapacity(RESOURCE_ENERGY) <= CONTROLLER_LINK_MIN_ENERGY
+                                           && creep.room.storage.store.getUsedCapacity(RESOURCE_ENERGY) >= OVERSEER_USE_STORAGE_FOR_CONTROLLER_LINK_THRESHOLD) {
+                            let collectAmount = creep.store.getCapacity();
+                            if (collectAmount > MAXIMUM_AMOUNT_TO_TRANSFER_TO_CONTROLLER_LINK) {
+                                collectAmount = MAXIMUM_AMOUNT_TO_TRANSFER_TO_CONTROLLER_LINK;
+                            }
+                            creep.withdraw(creep.room.storage, RESOURCE_ENERGY, collectAmount);
+                            setMemoryForNextTransfer(creep, base.centralLinkID, RESOURCE_ENERGY);
+                            return;
+                        }
+                        // TASK: moving energy from central link to storage...
                         if (link && link.store.getUsedCapacity(RESOURCE_ENERGY) != 0) { // if there is energy in central link...
                             creep.withdraw(link, RESOURCE_ENERGY);
                             setMemoryForNextTransfer(creep, creep.room.storage.id, RESOURCE_ENERGY);
@@ -3759,22 +3774,6 @@ class ScreepsScript {
                                     return;
                                 }
                             }
-                        }
-                        // TASK: transferring energy to central-link when controller-link exists in base and it needs more energy
-                        let controllerLink;
-                        if (base.controllerLinkID) {
-                            controllerLink = Game.getObjectById(base.controllerLinkID);
-                        }
-                        if (controllerLink && link.cooldown == 0 && link.store.getUsedCapacity(RESOURCE_ENERGY) == 0
-                                           && controllerLink.store.getUsedCapacity(RESOURCE_ENERGY) <= CONTROLLER_LINK_MIN_ENERGY
-                                           && creep.room.storage.store.getUsedCapacity(RESOURCE_ENERGY) >= OVERSEER_USE_STORAGE_FOR_CONTROLLER_LINK_THRESHOLD) {
-                            let collectAmount = creep.store.getCapacity();
-                            if (collectAmount > MAXIMUM_AMOUNT_TO_TRANSFER_TO_CONTROLLER_LINK) {
-                                collectAmount = MAXIMUM_AMOUNT_TO_TRANSFER_TO_CONTROLLER_LINK;
-                            }
-                            creep.withdraw(creep.room.storage, RESOURCE_ENERGY, collectAmount);
-                            setMemoryForNextTransfer(creep, base.centralLinkID, RESOURCE_ENERGY);
-                            return;
                         }
                         // TASK: generating power, and transfering EITHER power (from EITHER storage OR terminal) OR energy (from storage only) to powerspawn
                         if (creep.memory.generatePower) {
@@ -4959,7 +4958,7 @@ class ScreepsScript {
                 mso(1, "builder", "16m8w8c"),
                 mso(1, "paver", "10m5w5c"),
                 mso(1, "repairer", "10m5w5c"),
-                mso(1, "linkUpgrader", "5m5w1c"),
+                mso(1, "linkUpgrader", "18m15w3c"),
                 mso(1, "upgrader", "6m3w3c"),
                 mso(1, "upgraderS", "13m20w5c"),
                 mso(1, "extractor", "5w3c8m"),
@@ -4973,7 +4972,7 @@ class ScreepsScript {
                 mso(1, "builder", "20m10w10c"),
                 mso(1, "paver", "10m5w5c"),
                 mso(1, "repairer", "10m5w5c"),
-                mso(1, "linkUpgrader", "5m5w1c"),
+                mso(1, "linkUpgrader", "18m15w3c"),
                 mso(1, "upgrader", "10m8w2c"),
                 mso(1, "extractor", "15w6c21m"),
                 //mso(1, "upgrader", "21m15w6c"),
@@ -6101,13 +6100,13 @@ class ScreepsScript {
             let curCreep = Game.creeps[creepName];
             let roleType = curCreep.memory.role;
             if (!roleType) {
-                curCreep.room.memory.errors[Game.time] = ""+creepName+", has no role assigned in memory. Setting his role according to his name!";
+                curCreep.room.memory.errors[Game.time] = ""+creepName+", has no role assigned in memory. Setting unit's role according to name!";
                 roleType = creepName.split("_")[0];
                 curCreep.memory.role = roleType;
             }
             let baseName = curCreep.memory.base;
             if (!baseName) {
-                curCreep.room.memory.errors[Game.time] = ""+creepName+", has no base assigned in memory. Setting his base according to his current room (if it is a base)!";
+                curCreep.room.memory.errors[Game.time] = ""+creepName+", has no base assigned in memory. Setting unit's base according to current room (if it is a base)!";
                 if (!this.bases[curCreep.room.name]) { // if the room occupied by creep is NOT one of my bases...
                     for (let roomName in this.bases) {
                         Game.rooms[roomName].memory.errors[Game.time] = "An error log was saved in room "+curCreep.room.name+", which is not one of my bases!";
@@ -6318,7 +6317,7 @@ module.exports.loop = function () {
                     let curAmount = centralLink.store.getUsedCapacity(RESOURCE_ENERGY);
                     if (curAmount >= MAXIMUM_AMOUNT_TO_TRANSFER_TO_CONTROLLER_LINK) {
                         centralLink.transferEnergy(controllerLink, MAXIMUM_AMOUNT_TO_TRANSFER_TO_CONTROLLER_LINK);
-                    } else if (curAmount > MINIMUM_AMOUNT_TO_TRANSFER_TO_CONTROLLER_LINK) {
+                    } else if (curAmount >= CONTROLLER_LINK_MIN_ENERGY) {
                         centralLink.transferEnergy(controllerLink);
                     } // otherwise do nothing, since there is not enough energy in central link yet...
                 }
