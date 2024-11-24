@@ -3396,7 +3396,7 @@ class ScreepsScript {
                 let base = this.bases[baseName];
                 let curRoom = Game.rooms[baseName];
                 if (base.controllerLinkID && Game.getObjectById(base.controllerLinkID)
-                        && curRoom.storage && curRoom.storage.my && curRoom.storage.store.getUsedCapacity(RESOURCE_ENERGY) > UPGRADER_EARLY_SPAWN_THRESHOLD) {
+                        && curRoom.storage && curRoom.storage.my && curRoom.storage.store.getUsedCapacity(RESOURCE_ENERGY) > UPGRADER_S_LATE_SPAWN_THRESHOLD) {
                     return true;
                 } else {
                     return false;
