@@ -1,5 +1,7 @@
 # ScreepsScript by jdo555
 
+![Image of max-level base](./images/square-like-base.png)
+
 ## About
 This is my script for the game [Screeps](https://screeps.com/). I have worked on this script since at least 2020. I created this script mostly for fun and entirely from scratch, meaning that I made no referrence to anyone else's script in creating it; thus, it may be quite unique when compared to other existing scripts.
 

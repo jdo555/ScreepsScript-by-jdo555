@@ -6084,6 +6084,7 @@ class ScreepsScript {
                     delete Memory.creeps[creepName]; // ! according to the MDN documentation, it is safe to delete the current property in a for...in loop
                 } else { // when necessary memory properties were NOT set...
                     console.log("WARNING: dead creep, \""+creepName+"\", lacks necessary memory properties! Both role and base must be set in memory.");
+                    //delete Memory.creeps[creepName]; // uncomment this line if the above warning shows up in the console...
                 }
             }
         }
