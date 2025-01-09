@@ -116,3 +116,5 @@ Other issues or bugs likely exist.
 
 ## Plans for improvements
 I do not currently have any significant plans for improving this script, even though there is certainly a lot of room for improvements. I have, however, made some (very disorganized) notes about ideas for the script; these notes can be found [HERE](./other/todo_and_other_notes.txt).
+
+![Image of max-level rectangular base](./images/rectangle-base.png)

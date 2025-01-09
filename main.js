@@ -23,6 +23,10 @@ var travelObject = {
         W16S21: [29,0],
         W16S22: [30,0],
     },
+    W15S21: {
+        W16S22: [49,21],
+        W15S22: [30, 0],
+    },
     W16S21: {
         W16S22: [30, 0],
     },
@@ -30,6 +34,7 @@ var travelObject = {
         W13S22: [0,39],
         W14S22: [0,20],
         W15S20: [0,36],
+        W15S21: [31,49],
         W15S22: [0,21],
         W16S21: [30,49],
         W16S20: [26,49],
@@ -2300,7 +2305,7 @@ class ScreepsScript {
             // when creep's memory option useBaseStorage is true (the default), collects energy from base's storage; when false, collects energy from targetRoom's storage
             // once all site types in the TARGET_ROOM have been completed, this role will recycle
             // this role will only spawn when some construction site exists in TARGET_ROOM
-            // this role is meant to be spawned as need to help with building sites in less developed bases
+            // this role is meant to be spawned as needed to help with building sites in less developed bases
             // !!! note that the spawning of this role is not restricted by the relevant storage's quantity of energy
             
             role[RUN_FUNCTION] = (creep) => {
@@ -4261,12 +4266,13 @@ class ScreepsScript {
             // the repairer selects a single target for repairs when done collecting energy (or having maxed out last repair) and then repairs that target ...
             // ... until all carried energy is expended or that target has reached full health
             // ! note that each new target of the repairer is the structure in the base that has the lowest health (using base.lowestHealthStructure)
+            // at later controller levels, this role will only spawn for the sake of walls and ramparts (see spawn condition), since towers are then expected ...
+            // ... to maintain roads and the rest; this role will still repair anything in need of repairs once it has spawned however
             // this role will withdraw exclusively from storage (as long as the storage has at least a specific amount), but will otherwise harvest from sources
             // note that this role will not harvest from sources that are used by dropMiners, linkMiners, or upgradeMiners
-            // this role will wait at the room-memory-based wait-location when it cannot collect any resources
+            // this role will wait at the room-memory-based wait-location when it cannot collect any resources, or when there is no longer a valid target
             // ! note that the repairer will not spawn for low health containers, as container-repair is always handled by dropMiners (as this script does not use containers otherwise)
             // ! note that repairers will spawn much later for bases that have an upgradeMine, because of the faster rate of energy depletion in such bases
-            // !!! currently the repairer will not stop spawning when walls and ramparts are maxed; update the spawn-condition when time allows (see notes at spawn-condition)
             
             role[RUN_FUNCTION] = (creep) => {
                 let baseName = creep.memory.base;
@@ -4284,24 +4290,41 @@ class ScreepsScript {
                         let target = setTargetInMemory(creep, base.lowestHealthStructure, (x)=>(!x || x.hits == x.hitsMax));
                         if (target) {
                             moveToAndRepairTarget(creep, target, {reusePath: 30});
+                        } else {
+                            rallyAtWaitLocation(creep, baseName);
                         }
                     }
                 }
             }
             
-            // !!! update spawn-condition so that spawning stops once walls and ramparts have been maxed (at which point towers would handle all maintenance)
-            // ... there will also need to be a base variable to indicate that walls and ramparts have initially been repaired enough ...
-            // ... and then a way to reverse the value of that variable if walls or ramparts later go below a specific threshold of hitpoints
             role[SPAWN_CONDITION] = (baseName) => {
                 let room = Game.rooms[baseName];
                 let base = this.bases[baseName];
                 if (room.storage && base.lowestHealthStructure && base.lowestHealthStructure.structureType != STRUCTURE_CONTAINER) {
-                    if (room.controller.level == 8 && !base.upgradeMine && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) > REPAIRER_LATE_SPAWN_THRESHOLD) {
-                        return true;
-                    } else if (room.controller.level == 8 && base.upgradeMine && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) > REPAIRER_LATE_WITH_UM_SPAWN_THRESHOLD) {
-                        return true;
+                    if (room.controller.level == 8) {
+                        if (base.lowestHealthStructure.structureType != STRUCTURE_WALL && base.lowestHealthStructure.structureType != STRUCTURE_RAMPART) {
+                            return false; // ! only spawn for walls and ramparts at clvl 8
+                        } else if (base.lowestHealthStructure.hits > 290000000) {
+                            return false; // ! do not spawn if wall or rampart is near max hits
+                        } else if (!base.upgradeMine && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) > REPAIRER_LATE_SPAWN_THRESHOLD) {
+                            return true;
+                        } else if (base.upgradeMine && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) > REPAIRER_LATE_WITH_UM_SPAWN_THRESHOLD) {
+                            return true;
+                        } else {
+                            return false;
+                        }
                     } else if (room.controller.level < 8 && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) > REPAIRER_EARLY_SPAWN_THRESHOLD) {
-                        return true;
+                        if (room.controller.level == 7) {
+                            if (base.lowestHealthStructure.structureType == STRUCTURE_WALL && base.lowestHealthStructure.hits < 290000000) {
+                                return true; // ! spawn if there is a wall not too close to max hits
+                            } else if (base.lowestHealthStructure.structureType == STRUCTURE_RAMPART && base.lowestHealthStructure.hits < 90000000) {
+                                return true; // ! spawn if there is a rampart not too close to max hits
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            return true;
+                        }
                     } else {
                         return false;
                     }
@@ -4992,6 +5015,9 @@ class ScreepsScript {
             W13S22: [
                 //
             ],
+            W15S21: [
+                //
+            ],
             W16S22: [
                 //mso(1, "forager", "2c10w12m", {extraMemory: {targetRoom: "W15S20"}}),
             ],
@@ -5308,6 +5334,13 @@ class ScreepsScript {
                 template: 2,
                 anchor: [6,32],
                 autoRoads: true,
+            },
+            W15S21: {
+                baseType: 1,
+                template: 2,
+                anchor: [16,17],
+                autoRoads: true,
+                rotateNinetyDegrees: true,
             },
             W16S22: {
                 baseType: 1,
